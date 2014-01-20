@@ -3,7 +3,7 @@
 ## 核心数据结构
 
 ### 1， ngx_http_core_loc_conf_s  
-
+&emsp;&emsp; ngx_http_core_loc_conf_s完整的描叙了一个location块的信息，以及匹配这个location的请求的http包的一些资源信息
 ```c
 struct ngx_http_core_loc_conf_s {
     ngx_str_t name ;   //location的名称，就是nginx.conf 里面location后面的表达式
@@ -47,6 +47,53 @@ struct ngx_http_core_loc_conf_s {
     */
     ngx_queue_t  *locations;
 }
+```
+### 2，ngx_http_location_queue_t
+
+&emsp;&emsp; location queue将所有的相同前缀(结构体中的name)的location组织在一个队列中。
+
+```c
+typedef struct {
+    ngx_queue_t                      queue;
+    ngx_http_core_loc_conf_t        *exact;  //精确匹配的location数组
+    ngx_http_core_loc_conf_t        *inclusive;  //前缀包含匹配的location数组
+    ngx_str_t                       *name;    // 
+    u_char                          *file_name;
+    ngx_uint_t                       line;
+    ngx_queue_t                      list;
+}ngx_http_location_queue_t;
+```
+
+### 3, ngx_http_location_tree_node_s
+
+```c
+struct ngx_http_location_tree_node_s {
+    // 左子树
+    ngx_http_location_tree_node_t   *left;
+    // 右子树
+    ngx_http_location_tree_node_t   *right;
+    // 无法完全匹配的location组成的树
+    ngx_http_location_tree_node_t   *tree;
+
+    /*
+    如果location对应的URI匹配字符串属于能够完全匹配的类型，则exact指向其对应的ngx_http_core_loc_conf_t结构体，否则为NULL空指针
+    */
+    ngx_http_core_loc_conf_t        *exact;
+
+    /*
+    如果location对应的URI匹配字符串属于无法完全匹配的类型，则inclusive指向其对应的ngx_http_core_loc_conf_t 结构体，否则为NULL空指针
+    */
+    ngx_http_core_loc_conf_t        *inclusive;
+
+    // 自动重定向标志
+    u_char                           auto_redirect;
+
+    // name字符串的实际长度
+    u_char                           len;
+
+    // name指向location对应的URI匹配表达式
+    u_char                           name[1];
+};
 ```
 
 ## location tree 的构建
