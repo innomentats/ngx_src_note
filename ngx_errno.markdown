@@ -1,0 +1,3 @@
+#ngx_errno
+
+不使用strerror的原因是因为它不是线程安全的，因此用全局变量ngx_sys_errlist来存储系统错误信息。然后通过ngx_strerror来获得对应错误号的错误信息。
