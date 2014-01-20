@@ -127,7 +127,8 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 ```
 
 2， ngx_http_init_locations  
-&emsp;&emsp;递归初始化ngx_http_core_loc_conf_s中的static_location 和regex_location
+&emsp;&emsp;取出pclcf->locations,分类放在cscf->named_location 和pclcf->regex_locations里面
+因此这里就初始化了ngx_http_core_loc_conf_s的regex_locations。
 
 ```c
 
@@ -195,6 +196,7 @@ ngx_http_init_locations(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
         ngx_queue_split(locations, q, &tail);
     }
 
+    // 取出named location，然后存在srv_conf的named_location里面
     if (named) {
         clcfp = ngx_palloc(cf->pool,
                            (n + 1) * sizeof(ngx_http_core_loc_conf_t **));
@@ -217,7 +219,67 @@ ngx_http_init_locations(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
 
         ngx_queue_split(locations, named, &tail);
     }
+    ...
+}
 
+
+3， ngx_http_init_static_location_trees 初始化pclcf->static_location。 这才是构造搜索树的开始。也只有static location 才构建搜索树。
+
+```c
+
+static ngx_int_t
+ngx_http_init_static_location_trees(ngx_conf_t *cf,
+    ngx_http_core_loc_conf_t *pclcf)
+{
+
+    ...
+
+    for (q = ngx_queue_head(locations);
+         q != ngx_queue_sentinel(locations);
+         q = ngx_queue_next(q))
+    {
+        lq = (ngx_http_location_queue_t *) q;
+
+        clcf = lq->exact ? lq->exact : lq->inclusive;
+        if (ngx_http_init_static_location_trees(cf, clcf) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+
+```
+
+```c
+static ngx_int_t
+ngx_http_init_static_location_trees(ngx_conf_t *cf,
+    ngx_http_core_loc_conf_t *pclcf)
+{
+    ...
+
+    for (q = ngx_queue_head(locations);
+         q != ngx_queue_sentinel(locations);
+         q = ngx_queue_next(q))
+    {
+        lq = (ngx_http_location_queue_t *) q;
+
+        clcf = lq->exact ? lq->exact : lq->inclusive;
+
+        if (ngx_http_init_static_location_trees(cf, clcf) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+    if (ngx_http_join_exact_locations(cf, locations) != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    ngx_http_create_locations_list(locations, ngx_queue_head(locations));
+
+    pclcf->static_locations = ngx_http_create_locations_tree(cf, locations, 0);
+    if (pclcf->static_locations == NULL) {
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
 
 
 
