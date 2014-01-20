@@ -3,21 +3,21 @@
 ## 匹配规则
 ### 原型 
  **location [=|~|~*|^~|@] /uri/ { … }**
+
+#### 普通字符串匹配<a name=str>?</a>
 >
-### 普通字符串匹配<a name=str>?</a>
->>
 1 "="   ：精确匹配，如果匹配到跳出匹配过程
->>
+>
 2 "^~"  : 最大前缀匹配， 如果匹配跳出匹配匹配过程
->>
+>
 3 不带任何前缀： 最大前缀匹配，例如location /{} 跳表以/开头的字符串搜索匹配，再没有正则表达式匹配的情况才进行这个匹配，优先级最低
 
 >
 #### 正则表达式匹配<a name=reg>?</a>
 
->>
+>
 4 "~[*]"  : 大小写相关[无关]的正则匹配，  
->>
+>
 5 "@" ： named location，不是普通的location匹配，而是location内部重定向(internally redirected)的变量
 
 
@@ -161,8 +161,28 @@ ngx_http_core_location(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
 
 ```
 
-上面是解析location配置，下面是穿件location tree的时候，对locations队列的排序，由此可以获得location的转发顺序
-排序结果 ： 
+上面是解析location配置，下面是穿件location tree的时候，对locations队列的排序,下面是对代码中的一些变量的解释
+参考[这里](http://tengine.taobao.org/book/chapter_11.html) 
+
+####location分类
+>
+* 普通前端匹配的路径，例如location / {}
+* 抢占式前缀匹配的路径，例如location ^~ / {}
+* 精确匹配的路径，例如location = / {}
+* 命名路径，比如location @a {}
+* 无名路径，比如if {}或者limit_except {}生成的路径
+
+####我们再来看ngx_http_core_loc_conf_t中如何体现这些路径
+>
+* 普通前端匹配的路径   无
+* 抢占式前缀匹配的路径  noregex = 1
+* 精确匹配的路径 exact_match = 1
+* 命名路径    named = 1
+* 无名路径    noname = 1
+* 正则路径    regex != NULL
+
+####排序结果 
+
 > 
 1，精确匹配exact match的路径和两类前缀匹配的路径(inclusive)(字母序，如果某个精确匹配的路径的名字和前缀匹配的路径相同，精确匹配的路径排在前面)
 >
@@ -172,6 +192,7 @@ ngx_http_core_location(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
 >
 4，无名路径noname(出现序)
 
+####源码
 ```c
 
 static ngx_int_t

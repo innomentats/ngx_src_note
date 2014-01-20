@@ -97,9 +97,10 @@ struct ngx_http_location_tree_node_s {
 ```
 
 ## location tree 的构建
- 解析完一个http{}块的配置后，进入ngx_http_block函数，进行location tree的创建
- 
 
+&emsp;&emps;解析完一个http{}块的配置后，进入ngx_http_block函数，进行location tree的创建
+ 
+1,  ngx_http_block是http模块的配置解析函数
 ```c
 static char *
 ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -107,9 +108,9 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ...
     
     /* create location trees */
-
+    // 对每个server块，构建location搜索树
     for (s = 0; s < cmcf->servers.nelts; s++) {
-
+        //取得当前模块的location在全局location数组的位置
         clcf = cscfp[s]->ctx->loc_conf[ngx_http_core_module.ctx_index];
         
         if (ngx_http_init_locations(cf, cscfp[s], clcf) != NGX_OK) {
@@ -121,10 +122,103 @@ ngx_http_block(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
     }
 
-
   ...
 }
 ```
+
+2， ngx_http_init_locations  
+&emsp;&emsp;递归初始化ngx_http_core_loc_conf_s中的static_location 和regex_location
+
+```c
+
+static ngx_int_t
+ngx_http_init_locations(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
+    ngx_http_core_loc_conf_t *pclcf)
+{
+    ...
+    //指向当前location数组
+    locations = pclcf->locations;
+
+    if (locations == NULL) {
+        return NGX_OK;
+    }
+
+    //对location数组排序
+    ngx_queue_sort(locations, ngx_http_cmp_locations);
+
+    ...
+
+    // 开始对location进行分类
+    for (q = ngx_queue_head(locations);
+        q != ngx_queue_sentinel(locations);
+        q = ngx_queue_next(q))
+    {
+        lq = (ngx_http_location_queue_t *) q;
+
+        //对当前location递归处理，函数调用结束之后，clcf的location是已经排好序的location数组了
+        clcf = lq->exact ? lq->exact : lq->inclusive;
+        if (ngx_http_init_locations(cf, NULL, clcf) != NGX_OK) {
+            return NGX_ERROR;
+        }
+
+#if (NGX_PCRE)
+        //regex记录的是正则路径的开始元素，r是正则路径的长度
+        if (clcf->regex) {
+            r++;
+
+            if (regex == NULL) {
+                regex = q;
+            }
+
+            continue;
+        }
+
+#endif
+
+        if (clcf->named) {
+            n++;
+
+            if (named == NULL) {
+                named = q;
+            }
+
+            continue;
+        }
+
+        if (clcf->noname) {
+            break;
+        }
+    }
+
+    //从q分裂队列
+    if (q != ngx_queue_sentinel(locations)) {
+        ngx_queue_split(locations, q, &tail);
+    }
+
+    if (named) {
+        clcfp = ngx_palloc(cf->pool,
+                           (n + 1) * sizeof(ngx_http_core_loc_conf_t **));
+        if (clcfp == NULL) {
+            return NGX_ERROR;
+        }
+
+        cscf->named_locations = clcfp;
+
+        for (q = named;
+             q != ngx_queue_sentinel(locations);
+             q = ngx_queue_next(q))
+        {
+            lq = (ngx_http_location_queue_t *) q;
+
+            *(clcfp++) = lq->exact;
+        }
+
+        *clcfp = NULL;
+
+        ngx_queue_split(locations, named, &tail);
+    }
+
+
 
 
     
