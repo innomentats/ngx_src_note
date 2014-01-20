@@ -162,6 +162,15 @@ ngx_http_core_location(ngx_conf_t *cf, ngx_command_t *cmd, void *dummy)
 ```
 
 上面是解析location配置，下面是穿件location tree的时候，对locations队列的排序，由此可以获得location的转发顺序
+排序结果 ： 
+> 
+1，精确匹配exact match的路径和两类前缀匹配的路径(inclusive)(字母序，如果某个精确匹配的路径的名字和前缀匹配的路径相同，精确匹配的路径排在前面)
+>
+2，正则路径regex match(出现序)
+>
+3，命名路径named(字母序)
+>
+4，无名路径noname(出现序)
 
 ```c
 
