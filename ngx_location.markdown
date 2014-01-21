@@ -72,7 +72,7 @@ struct ngx_http_location_tree_node_s {
     ngx_http_location_tree_node_t   *left;
     // 右子树
     ngx_http_location_tree_node_t   *right;
-    // 无法完全匹配的location组成的树
+    // 完全匹配的location组成的树，包括exact和inclusive
     ngx_http_location_tree_node_t   *tree;
 
     /*
@@ -267,10 +267,13 @@ ngx_http_init_static_location_trees(ngx_conf_t *cf,
             return NGX_ERROR;
         }
     }
+
+
     if (ngx_http_join_exact_locations(cf, locations) != NGX_OK) {
         return NGX_ERROR;
     }
 
+    //建立location搜索树
     ngx_http_create_locations_list(locations, ngx_queue_head(locations));
 
     pclcf->static_locations = ngx_http_create_locations_tree(cf, locations, 0);
@@ -280,7 +283,215 @@ ngx_http_init_static_location_trees(ngx_conf_t *cf,
 
     return NGX_OK;
 }
+```
+/*
+ *  如果exact_match的location和普通字符串匹配的location的名字相同，则合并到location的inclusive队列里面
+ */
+```c
+static ngx_int_t
+ngx_http_join_exact_locations(ngx_conf_t *cf, ngx_queue_t *locations)
+{
 
+    ngx_queue_t                *q, *x;
+    ngx_http_location_queue_t  *lq, *lx;
 
+    q = ngx_queue_head(locations);
 
-    
+    while (q != ngx_queue_last(locations)) {
+
+        x = ngx_queue_next(q);
+
+        lq = (ngx_http_location_queue_t *) q;
+        lx = (ngx_http_location_queue_t *) x;
+
+        if (ngx_strcmp(lq->name->data, lx->name->data) == 0) {
+
+            if ((lq->exact && lx->exact) || (lq->inclusive && lx->inclusive)) {
+                ngx_log_error(NGX_LOG_EMERG, cf->log, 0,
+                              "duplicate location \"%V\" in %s:%ui",
+                              lx->name, lx->file_name, lx->line);
+
+                return NGX_ERROR;
+            }
+            //注意，lx不可能是exact_match，为什么呢？自己想想
+            lq->inclusive = lx->inclusive;
+
+            ngx_queue_remove(x);
+
+            continue;
+        }
+
+        q = ngx_queue_next(q);
+    }
+
+    return NGX_OK;
+}
+```
+```
+/*
+ *将具有相同的前缀的location移动到q->list里面
+ */
+```c
+
+static void
+ngx_http_create_locations_list(ngx_queue_t *locations, ngx_queue_t *q)
+{
+    u_char                     *name;
+    size_t                      len;
+    ngx_queue_t                *x, tail;
+    ngx_http_location_queue_t  *lq, *lx;
+
+    if (q == ngx_queue_last(locations)) {
+        return;
+    }
+
+    lq = (ngx_http_location_queue_t *) q;
+
+    //如果不是inclusive类型，直接进入下一个元素
+    if (lq->inclusive == NULL) {
+        ngx_http_create_locations_list(locations, ngx_queue_next(q));
+        return;
+    }
+
+    len = lq->name->len;
+    name = lq->name->data;
+
+    //找出所有前缀是name的location，除了lq本身
+    for (x = ngx_queue_next(q);
+         x != ngx_queue_sentinel(locations);
+         x = ngx_queue_next(x))
+    {
+        lx = (ngx_http_location_queue_t *) x;
+
+        if (len > lx->name->len
+            || (ngx_strncmp(name, lx->name->data, len) != 0))
+        {
+            break;
+        }
+    }
+
+    q = ngx_queue_next(q);
+
+    //没有找到前缀为name的location，直接进入下一个
+    if (q == x) {
+        ngx_http_create_locations_list(locations, x);
+        return;
+    }
+
+    //在q这里分裂location，将具有name前缀的location插入lq->list
+    ngx_queue_split(locations, q, &tail);
+    ngx_queue_add(&lq->list, &tail);
+
+    //如果location都处理完了，开始处理lq->list,例如处理完a,ab,abc,abd,name=a,  现在就是进行ab,abc,abd的处理
+    if (x == ngx_queue_sentinel(locations)) {
+        ngx_http_create_locations_list(&lq->list, ngx_queue_head(&lq->list));
+        return;
+    }
+
+    //将前缀不是name的location插入locations队列
+    ngx_queue_split(&lq->list, x, &tail);
+    ngx_queue_add(locations, &tail);
+
+    //接续递归处理lq->list 和 locations建立搜索树
+    ngx_http_create_locations_list(&lq->list, ngx_queue_head(&lq->list));
+
+    ngx_http_create_locations_list(locations, x);
+}
+```
+
+### 创建location树
+&emsp;&emsp; 终于进入树的构建了，前期对location队列做了排序和分类，那么接下来构建树的过程也就是一个递归过程了。
+
+#### 实例分析
+
+&emsp;&emsp;假设有这么一些排好序的 locations 队列：
+    a ab abc abd ac acd ae bc bcd be，那么经过 ngx_http_create_locations_list  处理后，构造出来的结构大家如下图：
+
+![location](location_tree.jpg),
+
+可以看到，list队列就是一个排好序的单向链表，而左右子树仍然是放在双向队列里面。这样的设计，非常适合高效的检索。
+
+#### 1，ngx_http_create_locations_tree (cf,locations,prefix)
+    locations是当前要处理的location队列，prefix是当前location队列的共同前缀。
+```c
+
+/*
+ * to keep cache locality for left leaf nodes, allocate nodes in following
+ * order: node, left subtree, right subtree, inclusive subtree
+ */
+
+static ngx_http_location_tree_node_t *
+ngx_http_create_locations_tree(ngx_conf_t *cf, ngx_queue_t *locations,
+    size_t prefix)
+{
+    size_t                          len;
+    ngx_queue_t                    *q, tail;
+    ngx_http_location_queue_t      *lq;
+    ngx_http_location_tree_node_t  *node;
+
+    //取出队列中间元素
+    q = ngx_queue_middle(locations);
+
+    // 处理出去共同前缀的部分
+    lq = (ngx_http_location_queue_t *) q;
+    len = lq->name->len - prefix;
+
+    node = ngx_palloc(cf->pool,
+                      offsetof(ngx_http_location_tree_node_t, name) + len);
+    if (node == NULL) {
+        return NULL;
+    }
+
+    node->left = NULL;
+    node->right = NULL;
+    node->tree = NULL;
+    node->exact = lq->exact;
+    node->inclusive = lq->inclusive;
+
+    node->auto_redirect = (u_char) ((lq->exact && lq->exact->auto_redirect)
+                           || (lq->inclusive && lq->inclusive->auto_redirect));
+
+    node->len = (u_char) len;
+    ngx_memcpy(node->name, &lq->name->data[prefix], len);
+
+    //从中间分裂locations
+    ngx_queue_split(locations, q, &tail);
+
+    if (ngx_queue_empty(locations)) {
+        /*
+         * ngx_queue_split() insures that if left part is empty,
+         * then right one is empty too
+         */
+        goto inclusive;
+    }
+
+    node->left = ngx_http_create_locations_tree(cf, locations, prefix);
+    if (node->left == NULL) {
+        return NULL;
+    }
+
+    ngx_queue_remove(q);
+
+    if (ngx_queue_empty(&tail)) {
+        goto inclusive;
+    }
+
+    node->right = ngx_http_create_locations_tree(cf, &tail, prefix);
+    if (node->right == NULL) {
+        return NULL;
+    }
+
+inclusive:
+
+    if (ngx_queue_empty(&lq->list)) {
+        return node;
+    }
+
+    node->tree = ngx_http_create_locations_tree(cf, &lq->list, prefix + len);
+    if (node->tree == NULL) {
+        return NULL;
+    }
+
+    return node;
+}
+```
