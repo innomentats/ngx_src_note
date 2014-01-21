@@ -327,7 +327,6 @@ ngx_http_join_exact_locations(ngx_conf_t *cf, ngx_queue_t *locations)
     return NGX_OK;
 }
 ```
-```
 /*
  *将具有相同的前缀的location移动到q->list里面
  */
@@ -412,7 +411,8 @@ ngx_http_create_locations_list(ngx_queue_t *locations, ngx_queue_t *q)
 可以看到，list队列就是一个排好序的单向链表，而左右子树仍然是放在双向队列里面。这样的设计，非常适合高效的检索。
 
 #### 1，ngx_http_create_locations_tree (cf,locations,prefix)
-    locations是当前要处理的location队列，prefix是当前location队列的共同前缀。
+locations是当前要处理的location队列，prefix是当前location队列的共同前缀。
+
 ```c
 
 /*
