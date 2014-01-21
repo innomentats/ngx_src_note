@@ -173,9 +173,7 @@ ngx_http_init_locations(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
 
             continue;
         }
-
 #endif
-
         if (clcf->named) {
             n++;
 
@@ -222,8 +220,9 @@ ngx_http_init_locations(ngx_conf_t *cf, ngx_http_core_srv_conf_t *cscf,
     ...
 }
 
+```
 
-3， ngx_http_init_static_location_trees 初始化pclcf->static_location。 这才是构造搜索树的开始。也只有static location 才构建搜索树。
+3，ngx_http_init_static_location_trees 初始化pclcf->static_location。 这才是构造搜索树的开始。也只有static location 才构建搜索树。
 
 ```c
 
@@ -231,9 +230,7 @@ static ngx_int_t
 ngx_http_init_static_location_trees(ngx_conf_t *cf,
     ngx_http_core_loc_conf_t *pclcf)
 {
-
     ...
-
     for (q = ngx_queue_head(locations);
          q != ngx_queue_sentinel(locations);
          q = ngx_queue_next(q))
@@ -245,9 +242,9 @@ ngx_http_init_static_location_trees(ngx_conf_t *cf,
             return NGX_ERROR;
         }
     }
-
+}
 ```
-
+* 将static location 进行合并，分类，最后建立location tree
 ```c
 static ngx_int_t
 ngx_http_init_static_location_trees(ngx_conf_t *cf,
@@ -284,9 +281,9 @@ ngx_http_init_static_location_trees(ngx_conf_t *cf,
     return NGX_OK;
 }
 ```
-/*
- *  如果exact_match的location和普通字符串匹配的location的名字相同，则合并到location的inclusive队列里面
- */
+
+* 如果exact_match的location和普通字符串匹配的location的名字相同，则合并到location的inclusive队列里面
+
 ```c
 static ngx_int_t
 ngx_http_join_exact_locations(ngx_conf_t *cf, ngx_queue_t *locations)
@@ -327,9 +324,9 @@ ngx_http_join_exact_locations(ngx_conf_t *cf, ngx_queue_t *locations)
     return NGX_OK;
 }
 ```
-/*
- *将具有相同的前缀的location移动到q->list里面
- */
+
+* 将具有相同的前缀的location移动到q->list里面
+ 
 ```c
 
 static void
